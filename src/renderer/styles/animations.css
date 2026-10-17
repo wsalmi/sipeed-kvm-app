@@ -1,0 +1,96 @@
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 6px var(--status-online-glow);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.08);
+    box-shadow: 0 0 14px var(--status-online-glow);
+  }
+}
+
+@keyframes pulse-amber {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 6px var(--status-degraded-glow);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 12px var(--status-degraded-glow);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDownFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes modalBackdropFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalContentScale {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-pulse-online {
+  animation: pulse-glow 2.4s infinite ease-in-out;
+}
+
+.animate-pulse-degraded {
+  animation: pulse-amber 2s infinite ease-in-out;
+}
+
+.animate-spin-slow {
+  animation: spin 1.8s linear infinite;
+  transform-origin: center;
+  display: inline-block;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-modal {
+  animation: modalContentScale 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
