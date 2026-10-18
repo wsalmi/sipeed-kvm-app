@@ -2,6 +2,7 @@ import React from 'react';
 import { Maximize2, Minimize2, Minus, Square, X } from 'lucide-react';
 import { useI18n } from '../../i18n/I18nContext';
 import { LanguageSelector } from '../common/LanguageSelector';
+import appLogo from '../../assets/icon.png';
 
 interface TitleBarProps {
   isFullscreen?: boolean;
@@ -28,7 +29,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       <div className="titlebar-left titlebar-no-drag">
         {isMac && <div className="mac-traffic-lights-spacer" />}
         <div className="app-brand">
-          <img src="/icon.png" alt="Salmer KVM Studio" className="brand-logo-img" />
+          <img src={appLogo} alt="Salmer KVM Studio" className="brand-logo-img" />
           <span className="brand-title">Salmer KVM Studio</span>
           <span className="brand-badge">{t.titlebar.brandBadge}</span>
         </div>

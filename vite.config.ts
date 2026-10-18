@@ -61,6 +61,7 @@ function preloadPlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     preloadPlugin(),
