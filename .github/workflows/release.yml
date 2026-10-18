@@ -1,0 +1,179 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag de versão para a release (ex: v1.0.0). Se vazio, usa a versão do package.json.'
+        required: false
+        default: ''
+      draft:
+        description: 'Criar como rascunho (Draft)'
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Marcar como versão de pré-lançamento (Pre-release)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os_name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            os_name: macOS
+            platform: mac
+            builder_flag: --mac
+          - os: windows-latest
+            os_name: Windows
+            platform: win
+            builder_flag: --win
+          - os: ubuntu-latest
+            os_name: Linux
+            platform: linux
+            builder_flag: --linux
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools fakeroot dpkg
+
+      - name: Typecheck TypeScript
+        run: npm run typecheck
+
+      - name: Build Vite & Preload
+        run: npm run build:vite
+
+      - name: Build Electron packages
+        run: npx electron-builder ${{ matrix.builder_flag }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload ${{ matrix.os_name }} release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ matrix.platform }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Release Tag
+        id: resolve_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            PKG_VER=$(node -p "require('./package.json').version")
+            TAG="v${PKG_VER}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Release Notes Summary
+        id: notes
+        run: |
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          
+          # Find the previous tag if it exists
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          cat << 'EOF' > RELEASE_NOTES.md
+          ## 📦 Salmer KVM Studio - Distribuição Multiplataforma
+
+          Instaladores e binários compilados para **macOS**, **Windows** e **Linux**.
+
+          ### 🚀 Pacotes Disponíveis:
+          - **macOS**: `.dmg` e `.zip` (Compatível nativamente com Apple Silicon e Intel)
+          - **Windows**: `.exe` (Instalador NSIS 64-bit)
+          - **Linux**: `.AppImage` (portável) e `.deb` (Debian/Ubuntu)
+
+          ---
+
+          ## 📝 Resumo das Mudanças
+          EOF
+
+          # Format and indent properly
+          sed -i 's/^[ ]*//' RELEASE_NOTES.md
+
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
+            echo "### 🔄 Mudanças desde a versão \`$PREV_TAG\`:" >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            git log "${PREV_TAG}..HEAD" --pretty=format:"* %s (%h)" >> RELEASE_NOTES.md || true
+          else
+            echo "### 🌟 Principais alterações incluídas nesta release:" >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            git log -n 25 --pretty=format:"* %s (%h)" >> RELEASE_NOTES.md || true
+          fi
+
+          echo "" >> RELEASE_NOTES.md
+          echo "---" >> RELEASE_NOTES.md
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          pattern: release-artifacts-*
+          merge-multiple: true
+
+      - name: Display downloaded files
+        run: ls -la dist-release/
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          name: "Salmer KVM Studio ${{ steps.resolve_tag.outputs.tag }}"
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          files: |
+            dist-release/*.dmg
+            dist-release/*.zip
+            dist-release/*.exe
+            dist-release/*.AppImage
+            dist-release/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

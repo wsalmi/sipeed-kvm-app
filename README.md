@@ -73,9 +73,24 @@ npm run build:vite
 
 #### Packaging Desktop Installers
 ```bash
-# Build desktop package for current OS (.dmg on macOS, .exe on Windows, .AppImage on Linux)
+# Build desktop package for current OS
 npm run build
+
+# Or target specific operating systems
+npm run build:mac    # macOS (.dmg and .zip for Apple Silicon & Intel)
+npm run build:win    # Windows (.exe 64-bit installer)
+npm run build:linux  # Linux (.AppImage and .deb)
 ```
+
+#### 🚀 Automated CI/CD & GitHub Releases
+Releases are automatically built and published across **macOS, Windows, and Linux** using GitHub Actions:
+- **Automatic Release on Tag**: Push a git tag formatted as `v*` (e.g., `v1.0.1`):
+  ```bash
+  git tag v1.0.1
+  git push origin v1.0.1
+  ```
+- **Manual Trigger**: Run the `Release Pipeline` workflow directly from the **Actions** tab on GitHub with custom tag, draft, or pre-release options.
+- **Automated Changelog**: Each release automatically aggregates commit changes and categorizes updates into Features, Fixes, and Improvements.
 
 ### 🛠️ Technology Stack
 - **Desktop Shell**: Electron 32 (Chromium 128 / Node.js 20)
@@ -150,9 +165,25 @@ npm run build:vite
 
 #### Empaquetado para Escritorio
 ```bash
-# Generar instalador para su sistema operativo (.dmg en macOS, .exe en Windows, .AppImage en Linux)
+# Generar instalador para su sistema operativo actual
 npm run build
+
+# O compilar para sistemas operativos específicos
+npm run build:mac    # macOS (.dmg y .zip para Apple Silicon e Intel)
+npm run build:win    # Windows (instalador .exe de 64 bits)
+npm run build:linux  # Linux (.AppImage y .deb)
 ```
+
+#### 🚀 CI/CD y Releases Automáticas en GitHub
+Los instaladores se compilan y publican automáticamente para **macOS, Windows y Linux** a través de GitHub Actions:
+- **Publicación Automática por Tag**: Cree y suba una etiqueta git con formato `v*` (ej: `v1.0.1`):
+  ```bash
+  git tag v1.0.1
+  git push origin v1.0.1
+  ```
+- **Disparador Manual**: Ejecute el flujo `Release Pipeline` directamente desde la pestaña **Actions** en GitHub con opciones de tag personalizado, borrador (draft) o versión previa.
+- **Resumen Automático de Cambios**: Cada release genera automáticamente un registro de cambios agrupando funciones, correcciones y tareas de mantenimiento.
+
 
 ### 🛠️ Tecnologías Utilizadas
 - **Shell de Escritorio**: Electron 32 (Chromium 128 / Node.js 20)
@@ -227,9 +258,25 @@ npm run build:vite
 
 #### Empacotamento de Executáveis Desktop
 ```bash
-# Gerar instaladores para seu sistema operacional (.dmg no macOS, .exe no Windows, .AppImage no Linux)
+# Gerar instaladores para o seu sistema operacional atual
 npm run build
+
+# Ou compilar diretamente para sistemas operacionais específicos
+npm run build:mac    # macOS (.dmg e .zip para Apple Silicon e Intel)
+npm run build:win    # Windows (instalador NSIS .exe 64-bit)
+npm run build:linux  # Linux (.AppImage e pacote .deb)
 ```
+
+#### 🚀 CI/CD e Releases Automáticas no GitHub
+As compilações e releases para **macOS, Windows e Linux** são geradas automaticamente pelo GitHub Actions:
+- **Publicação Automática por Tag**: Crie e envie uma tag git no padrão `v*` (ex: `v1.0.1`):
+  ```bash
+  git tag v1.0.1
+  git push origin v1.0.1
+  ```
+- **Disparo Manual**: Execute o workflow `Release Pipeline` pela aba **Actions** no GitHub com suporte a tag personalizada, rascunho (draft) e pré-lançamento.
+- **Resumo Automático de Mudanças**: A release extrai o log de commits e organiza as novidades por Funcionalidades, Correções e Manutenção.
+
 
 ### 🛠️ Tecnologias Utilizadas
 - **Shell Desktop**: Electron 32 (Chromium 128 / Node.js 20)
