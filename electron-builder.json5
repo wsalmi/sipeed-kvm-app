@@ -43,6 +43,7 @@
     "allowToChangeInstallationDirectory": true
   },
   "linux": {
+    "maintainer": "Wesley Salmi <wesalmi@gmail.com>",
     "icon": "build/icons",
     "target": ["AppImage", "deb"],
     "category": "Utility"

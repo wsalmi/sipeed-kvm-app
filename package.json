@@ -23,7 +23,10 @@
     "remote-desktop",
     "electron"
   ],
-  "author": "Sipeed KVM App Team",
+  "author": {
+    "name": "Wesley Salmi",
+    "email": "wesalmi@gmail.com"
+  },
   "license": "MIT",
   "dependencies": {
     "lucide-react": "^1.16.0",
