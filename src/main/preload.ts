@@ -16,6 +16,7 @@ export const kvmApi = {
 
   // Health Monitoring
   getHealthMap: (): Promise<Record<string, DeviceHealth>> => ipcRenderer.invoke('health:get-map'),
+  checkAllHealth: (): Promise<Record<string, DeviceHealth>> => ipcRenderer.invoke('health:check-all'),
   onHealthUpdate: (callback: (data: Record<string, DeviceHealth>) => void): (() => void) => {
     const handler = (_event: any, data: Record<string, DeviceHealth>) => callback(data);
     ipcRenderer.on('device-health-update', handler);

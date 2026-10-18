@@ -18,18 +18,44 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
   const webviewRef = useRef<any>(null);
   const isDomReadyRef = useRef<boolean>(false);
   const isElectron = typeof window !== 'undefined' && Boolean((window as any).kvmApi) && !(window as any).kvmApi?.isMock;
+  const [deviceCreds, setDeviceCreds] = useState<{ username?: string; password?: string }>({
+    username: session.device.username,
+    password: session.device.password,
+  });
+
+  // Resolve device credentials from store if password was omitted in the in-memory object
+  useEffect(() => {
+    if (session.device.username && session.device.password) {
+      setDeviceCreds({ username: session.device.username, password: session.device.password });
+    } else if (isElectron && window.kvmApi?.getDevices) {
+      window.kvmApi.getDevices().then((devices) => {
+        const found = devices.find((d) => d.id === session.device.id || d.host === session.device.host);
+        if (found) {
+          setDeviceCreds({
+            username: found.username || session.device.username,
+            password: found.password || session.device.password,
+          });
+        }
+      }).catch(() => {});
+    }
+  }, [session.device.id, session.device.host, session.device.username, session.device.password, isElectron]);
 
   useEffect(() => {
     setIsLoading(true);
     setHasError(false);
     isDomReadyRef.current = false;
 
-    // If device has credentials, perform pre-authentication in background
-    if (isElectron && session.device.username && session.device.password && window.kvmApi?.preAuth) {
+    // Perform pre-authentication in background and navigate directly to root once cookies are set
+    if (isElectron && window.kvmApi?.preAuth) {
       window.kvmApi.preAuth(session.device).then((res) => {
         if (res.success && webviewRef.current) {
           try {
-            webviewRef.current.reload();
+            console.log('[KVM View] Pre-auth succeeded, navigating to root stream URL:', session.streamUrl);
+            if (typeof webviewRef.current.loadURL === 'function') {
+              webviewRef.current.loadURL(session.streamUrl);
+            } else {
+              webviewRef.current.src = session.streamUrl;
+            }
           } catch {}
         }
       }).catch(() => {});
@@ -53,31 +79,88 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
       setHasError(false);
 
       if (typeof el.executeJavaScript === 'function') {
+        const targetUser = deviceCreds.username || session.device.username || '';
+        const targetPass = deviceCreds.password || session.device.password || '';
+
         const injectScript = `
           (function() {
             try {
-              // Ensure nano-kvm-auth cookie is set for client router checks
+              // 1. Ensure nano-kvm-auth cookie is set for client router checks
               if (document.cookie.includes('nano-kvm-token=')) {
                 document.cookie = "nano-kvm-auth=1; path=/; max-age=2592000; SameSite=Lax";
               }
 
-              // Auto-fill credentials if registered on device and present on login form
-              const u = document.querySelector('input[type="text"], input#username, input[placeholder*="user" i]');
-              const p = document.querySelector('input[type="password"]');
-              if (u && p && !p.value) {
-                const setValue = (elem, val) => {
-                  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(elem), 'value');
-                  desc.set.call(elem, val);
-                  elem.dispatchEvent(new Event('input', { bubbles: true }));
-                  elem.dispatchEvent(new Event('change', { bubbles: true }));
-                };
-                setValue(u, ${JSON.stringify(session.device.username || '')});
-                setValue(p, ${JSON.stringify(session.device.password || '')});
+              // 2. If already authenticated but React Router redirected to /auth/login, redirect back to /
+              const isAuthRoute = window.location.pathname.includes('/auth');
+              const hasAuthCookie = document.cookie.includes('nano-kvm-auth') || document.cookie.includes('nano-kvm-token');
+              if (isAuthRoute && hasAuthCookie) {
+                window.location.replace('/');
+                return;
               }
 
-              // Inject style to ensure webview document fills 100% of container
-              const style = document.createElement('style');
-              style.id = 'sipeed-full-area-style';
+              // 3. React/Ant Design SPA Auto-fill and Auto-submit
+              const targetUser = ${JSON.stringify(targetUser)};
+              const targetPass = ${JSON.stringify(targetPass)};
+
+              if (targetUser && targetPass && !window._sipeedAutoLoginRunning) {
+                window._sipeedAutoLoginRunning = true;
+                let attempts = 0;
+                const maxAttempts = 25; // 25 * 200ms = 5 seconds
+
+                const setReactVal = (elem, val) => {
+                  const proto = Object.getPrototypeOf(elem);
+                  const desc = Object.getOwnPropertyDescriptor(proto, 'value') || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+                  if (desc && desc.set) {
+                    desc.set.call(elem, val);
+                  } else {
+                    elem.value = val;
+                  }
+                  elem.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+                  elem.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                };
+
+                const pollTimer = setInterval(() => {
+                  attempts++;
+                  if (attempts > maxAttempts) {
+                    clearInterval(pollTimer);
+                    window._sipeedAutoLoginRunning = false;
+                    return;
+                  }
+
+                  if (!window.location.pathname.includes('/auth') || document.cookie.includes('nano-kvm-auth')) {
+                    clearInterval(pollTimer);
+                    window._sipeedAutoLoginRunning = false;
+                    return;
+                  }
+
+                  const u = document.querySelector('input#username, input[placeholder*="user" i], input[type="text"]');
+                  const p = document.querySelector('input#password, input[type="password"]');
+                  const btn = document.querySelector('button[type="submit"], form button.ant-btn-primary');
+
+                  if (u && p && btn) {
+                    if (!p.value || p.value !== targetPass) {
+                      setReactVal(u, targetUser);
+                      setReactVal(p, targetPass);
+                      setTimeout(() => {
+                        if (btn && !btn.disabled) {
+                          btn.click();
+                        }
+                      }, 120);
+                    }
+                    clearInterval(pollTimer);
+                    window._sipeedAutoLoginRunning = false;
+                  }
+                }, 200);
+              }
+
+              // 4. Inject style to ensure webview document fills 100% of container
+              const styleId = 'sipeed-full-area-style';
+              let style = document.getElementById(styleId);
+              if (!style) {
+                style = document.createElement('style');
+                style.id = styleId;
+                document.head.appendChild(style);
+              }
               style.textContent = ${JSON.stringify(`
                 html, body, [id="root"] {
                   width: 100% !important;
@@ -104,11 +187,6 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
                   top: 0 !important;
                 }
               `)};
-              if (!document.getElementById('sipeed-full-area-style')) {
-                document.head.appendChild(style);
-              } else {
-                document.getElementById('sipeed-full-area-style').textContent = style.textContent;
-              }
               document.body.classList.toggle('sipeed-stretch-mode', ${isStretchFill ? 'true' : 'false'});
               window.dispatchEvent(new Event('resize'));
             } catch(e) {}
@@ -133,15 +211,19 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
     el.addEventListener('console-message', onConsole);
     el.addEventListener('did-finish-load', onFinish);
     el.addEventListener('dom-ready', onFinish);
+    el.addEventListener('did-navigate', onFinish);
+    el.addEventListener('did-navigate-in-page', onFinish);
     el.addEventListener('did-fail-load', onFail);
 
     return () => {
       el.removeEventListener('console-message', onConsole);
       el.removeEventListener('did-finish-load', onFinish);
       el.removeEventListener('dom-ready', onFinish);
+      el.removeEventListener('did-navigate', onFinish);
+      el.removeEventListener('did-navigate-in-page', onFinish);
       el.removeEventListener('did-fail-load', onFail);
     };
-  }, [session.streamUrl, session.device.username, session.device.password, isElectron, isStretchFill]);
+  }, [session.streamUrl, deviceCreds, isElectron, isStretchFill]);
 
   // Sync stretch mode dynamically whenever isStretchFill toggles
   useEffect(() => {

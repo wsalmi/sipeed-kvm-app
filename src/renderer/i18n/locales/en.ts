@@ -81,6 +81,8 @@ export const en: TranslationSchema = {
     connectNow: 'Connect Now',
   },
   session: {
+    devicesTab: 'Devices',
+    newConnection: 'New Connection / Catalog',
     popoutWindow: 'Pop-out to Window',
     closeSession: 'Close Session',
     toggleSidebar: 'Toggle Sidebar',

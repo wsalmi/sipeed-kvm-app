@@ -120,7 +120,20 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background-color: var(--status-offline);
+  transition: background-color 0.2s ease;
+}
+
+.pill-dot.pill-dot-online {
   background-color: var(--status-online);
+}
+
+.pill-dot.pill-dot-degraded {
+  background-color: var(--status-degraded);
+}
+
+.pill-dot.pill-dot-offline {
+  background-color: var(--status-offline);
 }
 
 .titlebar-action-btn {
@@ -922,7 +935,24 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--status-online);
+  background-color: var(--status-offline);
+  transition: background-color 0.2s ease;
+}
+
+.tab-status-dot.tab-status-online {
+  background-color: var(--status-online);
+}
+
+.tab-status-dot.tab-status-degraded {
+  background-color: var(--status-degraded);
+}
+
+.tab-status-dot.tab-status-offline {
+  background-color: var(--status-offline);
+}
+
+.tab-status-dot.tab-status-checking {
+  background-color: var(--status-checking);
 }
 
 .tab-actions-hover {
@@ -944,6 +974,42 @@
 
 .tab-tool-btn:hover {
   background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.devices-catalog-tab {
+  font-weight: 500;
+  border-left: 2px solid var(--accent-cyan);
+}
+
+.devices-catalog-tab.active {
+  background: var(--bg-elevated);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.tab-catalog-icon {
+  color: var(--accent-cyan);
+}
+
+.tab-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 4px;
+}
+
+.tab-add-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-cyan);
   color: var(--text-primary);
 }
 

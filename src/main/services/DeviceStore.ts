@@ -189,9 +189,15 @@ export class DeviceStore {
     this.persist();
     return {
       ...device,
+      password: this.decrypt(toSave.encryptedPassword),
       hasStoredPassword: !!toSave.encryptedPassword,
       updatedAt: toSave.updatedAt,
     };
+  }
+
+  public getDecryptedPassword(idOrHost: string): string | undefined {
+    const dev = this.data.devices.find((d) => d.id === idOrHost || d.host === idOrHost);
+    return dev ? this.decrypt(dev.encryptedPassword) : undefined;
   }
 
   public deleteDevice(id: string): boolean {

@@ -50,16 +50,41 @@ export function useSessions() {
     setActiveSessionId(null);
   }, []);
 
-  const focusSession = useCallback((sessionId: string) => {
+  const focusSession = useCallback((sessionId: string | null) => {
     setActiveSessionId(sessionId);
   }, []);
 
-  const openPopout = useCallback(async (sessionId: string) => {
-    if (!window.kvmApi) return;
-    const session = sessions.find((s) => s.id === sessionId);
-    if (!session) return;
+  const openDevicesCatalog = useCallback(() => {
+    setActiveSessionId(null);
+  }, []);
 
-    await window.kvmApi.openPopout(session.deviceId, session.streamUrl);
+  const openPopout = useCallback(async (target: string | KvmDevice, streamUrl?: string) => {
+    if (!window.kvmApi) return;
+
+    let deviceId: string;
+    let url: string = streamUrl || '';
+
+    if (typeof target === 'object' && target !== null && 'id' in target) {
+      deviceId = target.id;
+      if (!url) {
+        url = `${target.protocol}://${target.host}:${target.port}/`;
+      }
+    } else {
+      deviceId = target;
+      if (!url) {
+        const session = sessions.find((s) => s.id === target || s.deviceId === target);
+        if (session) {
+          deviceId = session.deviceId;
+          url = session.streamUrl;
+        }
+      }
+    }
+
+    try {
+      await window.kvmApi.openPopout(deviceId, url);
+    } catch (err) {
+      console.error('Failed to open popout window:', err);
+    }
   }, [sessions]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
@@ -74,6 +99,7 @@ export function useSessions() {
     closeSession,
     closeAllSessions,
     focusSession,
+    openDevicesCatalog,
     openPopout,
   };
 }

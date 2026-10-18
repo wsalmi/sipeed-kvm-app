@@ -93,15 +93,47 @@ export function initBrowserMockApi(): void {
     },
 
     checkDeviceHealth: async (id: string): Promise<DeviceHealth> => {
-      const health: DeviceHealth = {
-        status: 'online',
-        latencyMs: 14,
-        lastChecked: Date.now(),
-        videoSignal: true,
-      };
-      currentHealth[id] = health;
-      healthListeners.forEach((cb) => cb({ ...currentHealth }));
-      return health;
+      const devices = getStored<KvmDevice[]>(STORAGE_KEYS.DEVICES, []);
+      const dev = devices.find((d) => d.id === id);
+      if (!dev) return { status: 'unknown' };
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2500);
+        const startTime = Date.now();
+        await fetch(`${dev.protocol}://${dev.host}:${dev.port}/?_t=${Date.now()}`, {
+          method: 'GET',
+          cache: 'no-store',
+          mode: 'no-cors',
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const latencyMs = Date.now() - startTime;
+        const health: DeviceHealth = {
+          status: 'online',
+          latencyMs,
+          lastChecked: Date.now(),
+          videoSignal: true,
+        };
+        currentHealth[id] = health;
+        healthListeners.forEach((cb) => cb({ ...currentHealth }));
+        return health;
+      } catch (err: any) {
+        const health: DeviceHealth = {
+          status: 'offline',
+          lastChecked: Date.now(),
+          errorMessage: err.message || 'Offline',
+        };
+        currentHealth[id] = health;
+        healthListeners.forEach((cb) => cb({ ...currentHealth }));
+        return health;
+      }
+    },
+
+    checkAllHealth: async (): Promise<Record<string, DeviceHealth>> => {
+      const devices = getStored<KvmDevice[]>(STORAGE_KEYS.DEVICES, []);
+      await Promise.allSettled(devices.map((d) => mockApi.checkDeviceHealth(d.id)));
+      return { ...currentHealth };
     },
 
     // Groups

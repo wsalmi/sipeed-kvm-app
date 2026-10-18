@@ -9,7 +9,7 @@ export function useDevices() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const { healthMap, refreshDevice } = useHealthStatus();
+  const { healthMap, refreshDevice, refreshAllHealth } = useHealthStatus();
 
   const loadData = useCallback(async () => {
     if (!window.kvmApi) return;
@@ -27,6 +27,13 @@ export function useDevices() {
       setIsLoading(false);
     }
   }, []);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
+      loadData(),
+      refreshAllHealth(),
+    ]);
+  }, [loadData, refreshAllHealth]);
 
   useEffect(() => {
     loadData();
@@ -141,7 +148,9 @@ export function useDevices() {
     saveDevice,
     deleteDevice,
     refreshDevice,
-    reload: loadData,
+    refreshAll,
+    healthMap,
+    reload: refreshAll,
     stats,
   };
 }

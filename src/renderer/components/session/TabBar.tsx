@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, ExternalLink, Monitor, Smartphone, Apple, Terminal, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { X, ExternalLink, Monitor, Smartphone, Apple, Terminal, PanelLeftClose, PanelLeftOpen, LayoutGrid, Plus } from 'lucide-react';
 import { ActiveSession } from '../../../shared/types/session';
+import { DeviceHealth } from '../../../shared/types/device';
 import { useI18n } from '../../i18n/I18nContext';
 
 interface TabBarProps {
@@ -9,8 +10,10 @@ interface TabBarProps {
   onSelectTab: (sessionId: string) => void;
   onCloseTab: (sessionId: string) => void;
   onPopoutTab: (sessionId: string) => void;
+  onSelectDevices?: () => void;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  healthMap?: Record<string, DeviceHealth>;
 }
 
 export const TabBar: React.FC<TabBarProps> = ({
@@ -19,8 +22,10 @@ export const TabBar: React.FC<TabBarProps> = ({
   onSelectTab,
   onCloseTab,
   onPopoutTab,
+  onSelectDevices,
   isSidebarOpen = true,
   onToggleSidebar,
+  healthMap,
 }) => {
   const { t } = useI18n();
   if (sessions.length === 0) return null;
@@ -38,6 +43,8 @@ export const TabBar: React.FC<TabBarProps> = ({
     }
   };
 
+  const isDevicesActive = activeSessionId === null;
+
   return (
     <div className="session-tab-bar">
       {onToggleSidebar && (
@@ -52,8 +59,31 @@ export const TabBar: React.FC<TabBarProps> = ({
       )}
 
       <div className="tabs-list">
+        {/* Dispositivos Tab (Takes user back to the catalog / device listing) */}
+        {onSelectDevices && (
+          <div
+            className={`session-tab devices-catalog-tab ${isDevicesActive ? 'active' : ''}`}
+            onClick={onSelectDevices}
+            title={t.session.devicesTab}
+          >
+            <LayoutGrid size={13} className="tab-catalog-icon" />
+            <span className="tab-title">{t.session.devicesTab}</span>
+          </div>
+        )}
+
         {sessions.map((session) => {
           const isActive = session.id === activeSessionId;
+          const health = healthMap?.[session.deviceId];
+          const status = health?.status || 'checking';
+
+          let dotClass = 'tab-status-offline';
+          if (status === 'online') {
+            dotClass = 'tab-status-online animate-pulse-online';
+          } else if (status === 'degraded') {
+            dotClass = 'tab-status-degraded animate-pulse-degraded';
+          } else if (status === 'checking') {
+            dotClass = 'tab-status-checking animate-spin-slow';
+          }
 
           return (
             <div
@@ -61,7 +91,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               className={`session-tab ${isActive ? 'active' : ''}`}
               onClick={() => onSelectTab(session.id)}
             >
-              <span className="tab-status-dot animate-pulse-online" />
+              <span className={`tab-status-dot ${dotClass}`} />
               <span className="tab-os-icon">{getOsIcon(session.device.targetOS)}</span>
               <span className="tab-title truncate" title={session.title}>
                 {session.title}
@@ -92,6 +122,17 @@ export const TabBar: React.FC<TabBarProps> = ({
             </div>
           );
         })}
+
+        {/* Add Connection / Browse Devices button */}
+        {onSelectDevices && (
+          <button
+            className="tab-add-btn"
+            onClick={onSelectDevices}
+            title={t.session.newConnection}
+          >
+            <Plus size={14} />
+          </button>
+        )}
       </div>
     </div>
   );

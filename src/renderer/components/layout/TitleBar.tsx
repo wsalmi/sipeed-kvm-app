@@ -37,7 +37,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       <div className="titlebar-center">
         {totalCount > 0 && (
           <div className="titlebar-status-pill">
-            <span className="pill-dot animate-pulse-online" />
+            <span
+              className={`pill-dot ${
+                onlineCount > 0 ? 'pill-dot-online animate-pulse-online' : 'pill-dot-offline'
+              }`}
+            />
             <span>{t.titlebar.activeCount(onlineCount, totalCount)}</span>
           </div>
         )}

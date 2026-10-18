@@ -36,5 +36,17 @@ export function useHealthStatus() {
     }
   }, []);
 
-  return { healthMap, refreshDevice };
+  const refreshAllHealth = useCallback(async () => {
+    if (!window.kvmApi) return;
+    try {
+      if (typeof window.kvmApi.checkAllHealth === 'function') {
+        const result = await window.kvmApi.checkAllHealth();
+        if (result) setHealthMap(result);
+      }
+    } catch (err) {
+      console.error('Failed to refresh health for all devices:', err);
+    }
+  }, []);
+
+  return { healthMap, refreshDevice, refreshAllHealth };
 }

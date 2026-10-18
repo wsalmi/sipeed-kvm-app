@@ -83,6 +83,8 @@ export interface TranslationSchema {
     connectNow: string;
   };
   session: {
+    devicesTab: string;
+    newConnection: string;
     popoutWindow: string;
     closeSession: string;
     toggleSidebar: string;

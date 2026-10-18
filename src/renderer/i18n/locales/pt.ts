@@ -81,6 +81,8 @@ export const pt: TranslationSchema = {
     connectNow: 'Conectar Agora',
   },
   session: {
+    devicesTab: 'Dispositivos',
+    newConnection: 'Nova Conexão / Listagem',
     popoutWindow: 'Destacar em Janela Separada',
     closeSession: 'Fechar Sessão',
     toggleSidebar: 'Alternar Barra Lateral',

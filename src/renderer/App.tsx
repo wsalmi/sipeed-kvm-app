@@ -25,7 +25,6 @@ export const App: React.FC = () => {
   const {
     devices,
     filteredDevices,
-
     groups,
     selectedGroupId,
     setSelectedGroupId,
@@ -36,6 +35,8 @@ export const App: React.FC = () => {
     saveDevice,
     deleteDevice,
     refreshDevice,
+    refreshAll,
+    healthMap,
     reload,
     stats,
   } = useDevices();
@@ -97,7 +98,7 @@ export const App: React.FC = () => {
 
   const handleRefreshAll = async () => {
     setIsRefreshingAll(true);
-    await reload();
+    await refreshAll();
     setTimeout(() => setIsRefreshingAll(false), 800);
   };
 
@@ -153,6 +154,7 @@ export const App: React.FC = () => {
   });
 
   const hasActiveSessions = sessions.length > 0;
+  const isViewingDevices = activeSessionId === null;
 
   return (
     <div className={`app-root theme-${settings.theme} ${isFullscreen ? 'app-fullscreen' : ''}`}>
@@ -182,11 +184,14 @@ export const App: React.FC = () => {
       {/* Main Workspace Layout */}
       <div className="app-workspace">
         {/* Left Navigation Sidebar (collapsible or hidden in fullscreen) */}
-        {!isFullscreen && (isSidebarOpen || !hasActiveSessions) && (
+        {!isFullscreen && (isSidebarOpen || !hasActiveSessions || isViewingDevices) && (
           <Sidebar
             groups={groups}
             selectedGroupId={selectedGroupId}
-            onSelectGroup={setSelectedGroupId}
+            onSelectGroup={(groupId) => {
+              setSelectedGroupId(groupId);
+              focusSession(null);
+            }}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
             onOpenNewDeviceModal={() => {
@@ -205,35 +210,117 @@ export const App: React.FC = () => {
 
         {/* Content Area */}
         <main className="app-main-content">
-          {/* Top Header Bar (catalog search & filter, hidden in active session to maximize KVM area) */}
-          {!isFullscreen && !hasActiveSessions && (
-            <Header
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              layoutMode={layoutMode}
-              onLayoutChange={setLayoutMode}
-              onRefreshAll={handleRefreshAll}
-              isRefreshing={isRefreshingAll}
-              hasActiveSessions={hasActiveSessions}
-              activeSessionCount={sessions.length}
+          {/* Active Sessions Tab Bar (rendered whenever sessions exist) */}
+          {hasActiveSessions && !isFullscreen && (
+            <TabBar
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelectTab={focusSession}
+              onCloseTab={closeSession}
+              onPopoutTab={openPopout}
+              onSelectDevices={() => focusSession(null)}
+              isSidebarOpen={isSidebarOpen}
+              onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+              healthMap={healthMap}
             />
           )}
 
-          {/* Active Sessions Tab Bar & KVM View */}
-          {hasActiveSessions ? (
-            <div className="active-sessions-wrapper">
+          {isViewingDevices ? (
+            <>
+              {/* Top Header Bar (catalog search & filter) */}
               {!isFullscreen && (
-                <TabBar
-                  sessions={sessions}
-                  activeSessionId={activeSessionId}
-                  onSelectTab={focusSession}
-                  onCloseTab={closeSession}
-                  onPopoutTab={openPopout}
-                  isSidebarOpen={isSidebarOpen}
-                  onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+                <Header
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  layoutMode={layoutMode}
+                  onLayoutChange={setLayoutMode}
+                  onRefreshAll={handleRefreshAll}
+                  isRefreshing={isRefreshingAll}
+                  hasActiveSessions={hasActiveSessions}
+                  activeSessionCount={sessions.length}
                 />
               )}
 
+              {/* Dashboard / Device Catalog Grid */}
+              <div className="devices-dashboard-container">
+                <div className="dashboard-intro-row">
+                  <div>
+                    <h2 className="dashboard-title">
+                      {selectedGroupId === 'all'
+                        ? t.sidebar.all
+                        : groups.find((g) => g.id === selectedGroupId)?.name || t.sidebar.all}
+                    </h2>
+                    <p className="dashboard-subtitle">
+                      {filteredDevices.length} • {t.titlebar.activeCount(stats.online, stats.total)}
+                    </p>
+                  </div>
+
+                  <div className="dashboard-quick-actions">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<Plus size={14} />}
+                      onClick={() => {
+                        setDeviceToEdit(null);
+                        setIsDeviceModalOpen(true);
+                      }}
+                    >
+                      {t.sidebar.addKvm}
+                    </Button>
+                  </div>
+                </div>
+
+                {filteredDevices.length === 0 ? (
+                  <div className="empty-state-card animate-fade-in">
+                    <Server size={48} className="empty-state-icon" />
+                    <h3>{searchQuery ? t.devices.noDevicesFiltered : t.devices.noDevicesFound}</h3>
+                    <div className="empty-state-buttons">
+                      <Button
+                        variant="primary"
+                        icon={<Plus size={15} />}
+                        onClick={() => {
+                          setDeviceToEdit(null);
+                          setIsDeviceModalOpen(true);
+                        }}
+                      >
+                        {t.devices.addNewKvm}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        icon={<Zap size={15} />}
+                        onClick={() => setIsQuickConnectOpen(true)}
+                      >
+                        {t.sidebar.quickConnect}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="devices-cards-grid animate-fade-in">
+                    {filteredDevices.map((device) => {
+                      const isConnected = sessions.some((s) => s.deviceId === device.id);
+                      return (
+                        <DeviceCard
+                          key={device.id}
+                          device={device}
+                          isConnected={isConnected}
+                          onConnect={handleConnect}
+                          onEdit={(d) => {
+                            setDeviceToEdit(d);
+                            setIsDeviceModalOpen(true);
+                          }}
+                          onDelete={deleteDevice}
+                          onRefresh={refreshDevice}
+                          onPopout={(d) => openPopout(d)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            /* Active Sessions KVM View */
+            <div className="active-sessions-wrapper">
               {activeSession && !isFullscreen && (
                 <KvmToolbar
                   session={activeSession}
@@ -262,84 +349,6 @@ export const App: React.FC = () => {
                   }}
                 />
               </div>
-            </div>
-          ) : (
-            /* Dashboard / Device Catalog Grid (When no session is open) */
-            <div className="devices-dashboard-container">
-              <div className="dashboard-intro-row">
-                <div>
-                  <h2 className="dashboard-title">
-                    {selectedGroupId === 'all'
-                      ? t.sidebar.all
-                      : groups.find((g) => g.id === selectedGroupId)?.name || t.sidebar.all}
-                  </h2>
-                  <p className="dashboard-subtitle">
-                    {filteredDevices.length} • {t.titlebar.activeCount(stats.online, stats.total)}
-                  </p>
-                </div>
-
-                <div className="dashboard-quick-actions">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Plus size={14} />}
-                    onClick={() => {
-                      setDeviceToEdit(null);
-                      setIsDeviceModalOpen(true);
-                    }}
-                  >
-                    {t.sidebar.addKvm}
-                  </Button>
-                </div>
-              </div>
-
-              {filteredDevices.length === 0 ? (
-                <div className="empty-state-card animate-fade-in">
-                  <Server size={48} className="empty-state-icon" />
-                  <h3>{searchQuery ? t.devices.noDevicesFiltered : t.devices.noDevicesFound}</h3>
-                  <div className="empty-state-buttons">
-                    <Button
-                      variant="primary"
-                      icon={<Plus size={15} />}
-                      onClick={() => {
-                        setDeviceToEdit(null);
-                        setIsDeviceModalOpen(true);
-                      }}
-                    >
-                      {t.devices.addNewKvm}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      icon={<Zap size={15} />}
-                      onClick={() => setIsQuickConnectOpen(true)}
-                    >
-                      {t.sidebar.quickConnect}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-
-                <div className="devices-cards-grid animate-fade-in">
-                  {filteredDevices.map((device) => {
-                    const isConnected = sessions.some((s) => s.deviceId === device.id);
-                    return (
-                      <DeviceCard
-                        key={device.id}
-                        device={device}
-                        isConnected={isConnected}
-                        onConnect={handleConnect}
-                        onEdit={(d) => {
-                          setDeviceToEdit(d);
-                          setIsDeviceModalOpen(true);
-                        }}
-                        onDelete={deleteDevice}
-                        onRefresh={refreshDevice}
-                        onPopout={(d) => openPopout(d.id)}
-                      />
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
         </main>

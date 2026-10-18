@@ -107,7 +107,11 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('devices:delete', async (_event, id) => {
-    return deviceStore.deleteDevice(id);
+    const deleted = deviceStore.deleteDevice(id);
+    if (deleted) {
+      healthMonitor.removeDevice(id);
+    }
+    return deleted;
   });
 
   ipcMain.handle('devices:check-health', async (_event, id) => {
@@ -132,6 +136,10 @@ function registerIpcHandlers(): void {
     return healthMonitor.getHealthMap();
   });
 
+  ipcMain.handle('health:check-all', async () => {
+    return healthMonitor.checkAllDevices();
+  });
+
   // Settings
   ipcMain.handle('settings:get', async () => {
     return deviceStore.getSettings();
@@ -140,6 +148,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('settings:save', async (_event, settings) => {
     const updated = deviceStore.saveSettings(settings);
     updateGlobalShortcuts();
+    healthMonitor.start();
     return updated;
   });
 
@@ -193,12 +202,30 @@ function registerIpcHandlers(): void {
     if (popoutWindows.has(deviceId)) {
       const existing = popoutWindows.get(deviceId);
       if (existing && !existing.isDestroyed()) {
+        existing.show();
         existing.focus();
         return true;
+      } else {
+        popoutWindows.delete(deviceId);
       }
     }
 
     const device = deviceStore.getDevices().find((d) => d.id === deviceId);
+    const targetUrl = url || (device ? `${device.protocol}://${device.host}:${device.port}/` : '');
+
+    if (!targetUrl) {
+      console.warn('[Popout] Cannot open popout: missing target URL for device', deviceId);
+      return false;
+    }
+
+    if (device && device.username && device.password) {
+      try {
+        await authenticateDevice(device);
+      } catch (e) {
+        console.warn('[Popout] Pre-auth failed:', e);
+      }
+    }
+
     const iconPath = path.join(__dirname, '../build/icon.png');
     const popout = new BrowserWindow({
       width: 1280,
@@ -209,10 +236,14 @@ function registerIpcHandlers(): void {
       webPreferences: {
         sandbox: false,
         contextIsolation: true,
+        partition: 'persist:nanokvm',
+        webSecurity: false,
       },
     });
 
-    popout.loadURL(url);
+    popout.loadURL(targetUrl).catch((err) => {
+      console.error('[Popout] Failed to load URL in popout window:', err);
+    });
 
     popout.on('closed', () => {
       popoutWindows.delete(deviceId);
@@ -254,12 +285,29 @@ function registerIpcHandlers(): void {
 }
 
 async function authenticateDevice(device: Partial<KvmDevice>): Promise<{ success: boolean; token?: string }> {
-  if (!device.host || !device.username || !device.password) {
+  let username = device.username;
+  let password = device.password;
+  let host = device.host;
+  let protocol = device.protocol || 'https';
+  let port = device.port || (protocol === 'https' ? 443 : 80);
+
+  if ((!password || !username || !host) && (device.id || device.host)) {
+    const stored = deviceStore.getDevices().find(
+      (d) => (device.id && d.id === device.id) || (device.host && d.host === device.host)
+    );
+    if (stored) {
+      username = username || stored.username;
+      password = password || stored.password || (stored.id ? deviceStore.getDecryptedPassword(stored.id) : undefined);
+      host = host || stored.host;
+      protocol = stored.protocol || protocol;
+      port = stored.port || port;
+    }
+  }
+
+  if (!host || !username || !password) {
+    console.warn(`[PreAuth] Incomplete credentials for host: ${host}, username: ${username}`);
     return { success: false };
   }
-  const protocol = device.protocol || 'https';
-  const port = device.port || (protocol === 'https' ? 443 : 80);
-  const host = device.host;
 
   return new Promise((resolve) => {
     try {
@@ -287,34 +335,47 @@ async function authenticateDevice(device: Partial<KvmDevice>): Promise<{ success
               const token = data?.data?.token;
               if (token) {
                 authTokens.set(host, token);
-                const targetUrl = `${protocol}://${host}:${port}/`;
+                const targetUrls = [
+                  `${protocol}://${host}:${port}/`,
+                  `${protocol}://${host}/`,
+                  `https://${host}/`,
+                  `http://${host}/`,
+                ];
                 const sessions = [session.defaultSession, session.fromPartition('persist:nanokvm')];
+                const isSecure = protocol === 'https';
+
                 for (const s of sessions) {
-                  try {
-                    await s.cookies.set({
-                      url: targetUrl,
-                      name: 'nano-kvm-token',
-                      value: token,
-                      path: '/',
-                      sameSite: 'lax',
-                      secure: false,
-                    });
-                    await s.cookies.set({
-                      url: targetUrl,
-                      name: 'nano-kvm-auth',
-                      value: '1',
-                      path: '/',
-                      sameSite: 'lax',
-                      secure: false,
-                    });
-                  } catch (e) {
-                    console.warn('[PreAuth] Failed to set cookie on session:', e);
+                  for (const targetUrl of targetUrls) {
+                    try {
+                      await s.cookies.set({
+                        url: targetUrl,
+                        name: 'nano-kvm-token',
+                        value: token,
+                        path: '/',
+                        sameSite: 'lax',
+                        secure: isSecure && targetUrl.startsWith('https:'),
+                        expirationDate: Math.floor(Date.now() / 1000) + 30 * 86400,
+                      });
+                      await s.cookies.set({
+                        url: targetUrl,
+                        name: 'nano-kvm-auth',
+                        value: '1',
+                        path: '/',
+                        sameSite: 'lax',
+                        secure: isSecure && targetUrl.startsWith('https:'),
+                        expirationDate: Math.floor(Date.now() / 1000) + 30 * 86400,
+                      });
+                    } catch {}
                   }
                 }
                 console.log(`[PreAuth] Successfully pre-authenticated device ${host}`);
                 return resolve({ success: true, token });
+              } else {
+                console.warn(`[PreAuth] Login response rejected by ${host}:`, data?.msg || body);
               }
-            } catch {}
+            } catch (err: any) {
+              console.warn(`[PreAuth] Failed to parse auth response from ${host}:`, err.message);
+            }
             resolve({ success: false });
           });
         }
@@ -330,7 +391,7 @@ async function authenticateDevice(device: Partial<KvmDevice>): Promise<{ success
         resolve({ success: false });
       });
 
-      req.write(JSON.stringify({ username: device.username, password: device.password }));
+      req.write(JSON.stringify({ username, password }));
       req.end();
     } catch {
       resolve({ success: false });
