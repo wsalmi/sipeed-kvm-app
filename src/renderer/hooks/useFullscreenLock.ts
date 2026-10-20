@@ -20,34 +20,12 @@ export function useFullscreenLock(options: UseFullscreenLockOptions = {}) {
       if (newState) {
         // Show exclusive mode HUD temporarily
         setShowHud(true);
-        setTimeout(() => setShowHud(false), 2800);
-
-        // Try Pointer Lock if in fullscreen
-        try {
-          if (document.documentElement.requestPointerLock) {
-            document.documentElement.requestPointerLock();
-          }
-        } catch (e) {
-          console.warn('[FullscreenLock] Pointer lock failed:', e);
-        }
-
-        // Try Keyboard Lock API to prevent local browser/OS shortcuts from intercepting games
-        try {
-          if ('keyboard' in navigator && (navigator as any).keyboard?.lock) {
-            await (navigator as any).keyboard.lock();
-            console.log('[FullscreenLock] Keyboard locked exclusively for remote session');
-          }
-        } catch (e) {
-          console.warn('[FullscreenLock] Keyboard lock failed:', e);
-        }
+        setTimeout(() => setShowHud(false), 3500);
       } else {
         setShowHud(false);
-        // Release locks
-        if (document.exitPointerLock) {
+        // Release any pointer lock when leaving fullscreen
+        if (document.exitPointerLock && document.pointerLockElement) {
           document.exitPointerLock();
-        }
-        if ('keyboard' in navigator && (navigator as any).keyboard?.unlock) {
-          (navigator as any).keyboard.unlock();
         }
       }
     } catch (err) {
@@ -59,11 +37,44 @@ export function useFullscreenLock(options: UseFullscreenLockOptions = {}) {
     // Check initial state
     if (window.kvmApi) {
       window.kvmApi.isFullscreen().then(setIsFullscreen).catch(() => {});
-    }
 
+      // Sync state whenever window fullscreen changes externally (e.g. macOS native fullscreen or shortcuts)
+      if (typeof window.kvmApi.onFullscreenChange === 'function') {
+        const cleanup = window.kvmApi.onFullscreenChange((isFull) => {
+          setIsFullscreen(isFull);
+          if (isFull) {
+            setShowHud(true);
+            setTimeout(() => setShowHud(false), 3500);
+          } else {
+            setShowHud(false);
+            if (document.exitPointerLock && document.pointerLockElement) {
+              document.exitPointerLock();
+            }
+          }
+        });
+        return cleanup;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     // Keyboard shortcut listener
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Normalizes matching e.g. 'F11', 'Escape', etc.
+      // ESC always exits fullscreen
+      if (e.key === 'Escape' && isFullscreen) {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
+
+      // macOS native shortcut (Cmd+Ctrl+F)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && (e.ctrlKey || e.metaKey && e.shiftKey)) {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
+
+      // Configured shortcut (e.g. F11)
       if (e.key === shortcut || e.code === shortcut) {
         e.preventDefault();
         toggleFullscreen();
@@ -74,7 +85,7 @@ export function useFullscreenLock(options: UseFullscreenLockOptions = {}) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [shortcut, toggleFullscreen]);
+  }, [shortcut, isFullscreen, toggleFullscreen]);
 
   return {
     isFullscreen,

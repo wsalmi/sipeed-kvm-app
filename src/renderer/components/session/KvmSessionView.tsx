@@ -15,13 +15,27 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [webviewPreload, setWebviewPreload] = useState<string | undefined>(undefined);
+  const containerRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<any>(null);
   const isDomReadyRef = useRef<boolean>(false);
+  const isPointerLockedRef = useRef<boolean>(false);
   const isElectron = typeof window !== 'undefined' && Boolean((window as any).kvmApi) && !(window as any).kvmApi?.isMock;
   const [deviceCreds, setDeviceCreds] = useState<{ username?: string; password?: string }>({
     username: session.device.username,
     password: session.device.password,
   });
+
+  // Fetch webview preload script URL in Electron
+  useEffect(() => {
+    if (isElectron && (window as any).kvmApi?.getWebviewPreload) {
+      (window as any).kvmApi.getWebviewPreload().then((preloadUrl: string) => {
+        if (preloadUrl) {
+          setWebviewPreload(preloadUrl);
+        }
+      }).catch(() => {});
+    }
+  }, [isElectron]);
 
   // Resolve device credentials from store if password was omitted in the in-memory object
   useEffect(() => {
@@ -45,26 +59,21 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
     setHasError(false);
     isDomReadyRef.current = false;
 
-    // Perform pre-authentication in background and navigate directly to root once cookies are set
+    // Perform pre-authentication in background and set cookies
     if (isElectron && window.kvmApi?.preAuth) {
       window.kvmApi.preAuth(session.device).then((res) => {
         if (res.success && webviewRef.current) {
           try {
-            console.log('[KVM View] Pre-auth succeeded, navigating to root stream URL:', session.streamUrl);
-            if (typeof webviewRef.current.loadURL === 'function') {
-              webviewRef.current.loadURL(session.streamUrl);
-            } else {
-              webviewRef.current.src = session.streamUrl;
-            }
+            console.log('[KVM View] Pre-auth succeeded for:', session.streamUrl);
           } catch {}
         }
       }).catch(() => {});
     }
 
-    // Timeout fallback if device does not load in 4s
+    // Timeout fallback if device does not load in 5s
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 4000);
+    }, 5000);
 
     return () => clearTimeout(timer);
   }, [session.streamUrl, session.device, isElectron]);
@@ -85,12 +94,79 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
         const injectScript = `
           (function() {
             try {
-              // 1. Ensure nano-kvm-auth cookie is set for client router checks
+              // 1. Pointer Lock Safety Polyfill
+              // In Chromium GuestView (<webview>), calling native requestPointerLock() hits
+              // NOTREACHED() in check.cc and crashes Electron. This polyfill catches it and delegates.
+              if (!window._sipeedPointerLockPatched) {
+                window._sipeedPointerLockPatched = true;
+                let isLocked = false;
+                let currentTarget = null;
+
+                const safeLock = function() {
+                  currentTarget = this;
+                  isLocked = true;
+                  console.log('__SIPEED_POINTER_LOCK_REQUEST__');
+                  setTimeout(() => {
+                    try {
+                      document.dispatchEvent(new Event('pointerlockchange', { bubbles: true }));
+                    } catch(e) {}
+                  }, 10);
+                  return Promise.resolve();
+                };
+
+                const safeExit = function() {
+                  if (isLocked) {
+                    isLocked = false;
+                    currentTarget = null;
+                    console.log('__SIPEED_POINTER_LOCK_EXIT__');
+                    setTimeout(() => {
+                      try {
+                        document.dispatchEvent(new Event('pointerlockchange', { bubbles: true }));
+                      } catch(e) {}
+                    }, 10);
+                  }
+                };
+
+                if (typeof Element !== 'undefined' && Element.prototype) {
+                  Element.prototype.requestPointerLock = safeLock;
+                }
+                if (typeof HTMLCanvasElement !== 'undefined' && HTMLCanvasElement.prototype) {
+                  HTMLCanvasElement.prototype.requestPointerLock = safeLock;
+                }
+                if (typeof document !== 'undefined') {
+                  document.exitPointerLock = safeExit;
+                  try {
+                    Object.defineProperty(document, 'pointerLockElement', {
+                      get() { return isLocked ? currentTarget : null; },
+                      configurable: true
+                    });
+                  } catch(e) {}
+                }
+
+                window.addEventListener('message', (ev) => {
+                  if (ev.data?.type === 'SIPEED_FORCE_UNLOCK_POINTER') {
+                    safeExit();
+                  } else if (ev.data?.type === 'SIPEED_MOUSE_MOVE_DELTA' && isLocked && currentTarget) {
+                    try {
+                      currentTarget.dispatchEvent(new MouseEvent('mousemove', {
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: ev.data.clientX || 0,
+                        clientY: ev.data.clientY || 0,
+                        movementX: ev.data.movementX || 0,
+                        movementY: ev.data.movementY || 0,
+                      }));
+                    } catch(e) {}
+                  }
+                });
+              }
+
+              // 2. Ensure nano-kvm-auth cookie is set for client router checks
               if (document.cookie.includes('nano-kvm-token=')) {
                 document.cookie = "nano-kvm-auth=1; path=/; max-age=2592000; SameSite=Lax";
               }
 
-              // 2. If already authenticated but React Router redirected to /auth/login, redirect back to /
+              // 3. If already authenticated but React Router redirected to /auth/login, redirect back to /
               const isAuthRoute = window.location.pathname.includes('/auth');
               const hasAuthCookie = document.cookie.includes('nano-kvm-auth') || document.cookie.includes('nano-kvm-token');
               if (isAuthRoute && hasAuthCookie) {
@@ -98,7 +174,7 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
                 return;
               }
 
-              // 3. React/Ant Design SPA Auto-fill and Auto-submit
+              // 4. React/Ant Design SPA Auto-fill and Auto-submit
               const targetUser = ${JSON.stringify(targetUser)};
               const targetPass = ${JSON.stringify(targetPass)};
 
@@ -153,7 +229,7 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
                 }, 200);
               }
 
-              // 4. Inject style to ensure webview document fills 100% of container
+              // 5. Inject style to ensure webview document fills 100% of container
               const styleId = 'sipeed-full-area-style';
               let style = document.getElementById(styleId);
               if (!style) {
@@ -205,23 +281,117 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
     };
 
     const onConsole = (e: any) => {
-      console.log('[Webview Console]', e.message);
+      const msg = e.message || '';
+      if (msg.includes('__SIPEED_POINTER_LOCK_REQUEST__')) {
+        // Safe exclusive mouse mode handling: acquire pointer lock on top-level window
+        try {
+          if (containerRef.current?.requestPointerLock) {
+            containerRef.current.requestPointerLock();
+            isPointerLockedRef.current = true;
+          } else if (document.body.requestPointerLock) {
+            document.body.requestPointerLock();
+            isPointerLockedRef.current = true;
+          }
+        } catch (err) {
+          console.warn('[KVM View] Top-level pointer lock request failed:', err);
+        }
+      } else if (msg.includes('__SIPEED_POINTER_LOCK_EXIT__')) {
+        isPointerLockedRef.current = false;
+        try {
+          if (document.exitPointerLock) {
+            document.exitPointerLock();
+          }
+        } catch {}
+      } else {
+        console.log('[Webview Console]', msg);
+      }
+    };
+
+    // Prevent application crash if webview guest renderer process dies
+    const onRenderGone = (e: any) => {
+      console.warn('[Webview] Render process exited:', e?.reason, e?.exitCode);
+      setIsLoading(false);
+      setHasError(true);
+      if (e?.reason !== 'clean-exit') {
+        setTimeout(() => {
+          try {
+            if (el && typeof el.reload === 'function') {
+              el.reload();
+            }
+          } catch {}
+        }, 500);
+      }
+    };
+
+    // Forward mouse movement deltas into webview when top-level cursor is locked
+    const onHostMouseMove = (e: MouseEvent) => {
+      if (isPointerLockedRef.current && document.pointerLockElement) {
+        try {
+          el.executeJavaScript(`
+            window.postMessage({
+              type: 'SIPEED_MOUSE_MOVE_DELTA',
+              movementX: ${e.movementX},
+              movementY: ${e.movementY},
+              clientX: ${e.clientX},
+              clientY: ${e.clientY}
+            }, '*');
+          `).catch(() => {});
+        } catch {}
+      }
+    };
+
+    // Notify webview when user presses ESC or loses pointer lock
+    const onPointerLockChange = () => {
+      if (!document.pointerLockElement && isPointerLockedRef.current) {
+        isPointerLockedRef.current = false;
+        try {
+          el.executeJavaScript(`
+            window.postMessage({ type: 'SIPEED_FORCE_UNLOCK_POINTER' }, '*');
+          `).catch(() => {});
+        } catch {}
+      }
     };
 
     el.addEventListener('console-message', onConsole);
+    el.addEventListener('render-process-gone', onRenderGone);
     el.addEventListener('did-finish-load', onFinish);
     el.addEventListener('dom-ready', onFinish);
     el.addEventListener('did-navigate', onFinish);
     el.addEventListener('did-navigate-in-page', onFinish);
     el.addEventListener('did-fail-load', onFail);
 
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isPointerLockedRef.current) {
+          isPointerLockedRef.current = false;
+          if (document.exitPointerLock && document.pointerLockElement) {
+            document.exitPointerLock();
+          }
+          try {
+            el.executeJavaScript(`
+              window.postMessage({ type: 'SIPEED_FORCE_UNLOCK_POINTER' }, '*');
+            `).catch(() => {});
+          } catch {}
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('mousemove', onHostMouseMove);
+    document.addEventListener('pointerlockchange', onPointerLockChange);
+
     return () => {
       el.removeEventListener('console-message', onConsole);
+      el.removeEventListener('render-process-gone', onRenderGone);
       el.removeEventListener('did-finish-load', onFinish);
       el.removeEventListener('dom-ready', onFinish);
       el.removeEventListener('did-navigate', onFinish);
       el.removeEventListener('did-navigate-in-page', onFinish);
       el.removeEventListener('did-fail-load', onFail);
+
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('mousemove', onHostMouseMove);
+      document.removeEventListener('pointerlockchange', onPointerLockChange);
     };
   }, [session.streamUrl, deviceCreds, isElectron, isStretchFill]);
 
@@ -290,7 +460,10 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
   };
 
   return (
-    <div className={`kvm-viewport-container ${isFocused ? 'focused' : ''}`}>
+    <div
+      ref={containerRef}
+      className={`kvm-viewport-container ${isFocused ? 'focused' : ''}`}
+    >
       {/* Loading Overlay */}
       {isLoading && (
         <div className="kvm-loading-overlay animate-fade-in">
@@ -330,6 +503,8 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
           partition="persist:nanokvm"
           className="kvm-frame"
           allowpopups={"true" as any}
+          allowFullScreen={"true" as any}
+          preload={webviewPreload}
           webpreferences="contextIsolation=no, nodeIntegration=no, webSecurity=no, allowRunningInsecureContent=yes"
           style={{ width: '100%', height: '100%', flex: 1, minHeight: '100%', border: 'none', display: 'inline-flex' }}
         />

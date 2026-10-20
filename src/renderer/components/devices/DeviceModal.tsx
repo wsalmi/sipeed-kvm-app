@@ -36,7 +36,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
   useEffect(() => {
     if (deviceToEdit) {
       setName(deviceToEdit.name);
-      setHost(deviceToEdit.host);
+      setHost(deviceToEdit.originalHost || deviceToEdit.host);
       setPort(String(deviceToEdit.port || 80));
       setProtocol(deviceToEdit.protocol || 'http');
       setModel(deviceToEdit.model || 'nanokvm-go');
@@ -73,7 +73,8 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (port === '443') setPort('80');
     }
 
-    if (clean.toLowerCase().includes('nanokvm.local') && protocol === 'http') {
+    const lower = clean.toLowerCase();
+    if ((lower.includes('nanokvm') || lower.endsWith('.local')) && protocol === 'http') {
       setProtocol('https');
       if (port === '80') setPort('443');
     }
@@ -104,15 +105,21 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (p) finalPort = Number(p) || finalPort;
     }
 
-    if (cleanHost.toLowerCase().includes('nanokvm.local') && finalProto === 'http') {
+    const lowerHost = cleanHost.toLowerCase();
+    if ((lowerHost.includes('nanokvm') || lowerHost.endsWith('.local')) && finalProto === 'http') {
       finalProto = 'https';
       if (finalPort === 80) finalPort = 443;
     }
+
+    const isLocalHostname = cleanHost.includes('.local');
+    const originalHost = isLocalHostname ? cleanHost : (cleanHost === deviceToEdit?.host ? deviceToEdit?.originalHost : undefined);
 
     onSave({
       id: deviceToEdit?.id,
       name: name.trim(),
       host: cleanHost,
+      originalHost,
+      resolvedIp: isLocalHostname ? deviceToEdit?.resolvedIp : cleanHost,
       port: finalPort,
       protocol: finalProto,
       model,

@@ -39,6 +39,14 @@ function buildPreload() {
     format: 'cjs',
     external: ['electron'],
   });
+
+  esbuild.buildSync({
+    entryPoints: [path.resolve(__dirname, 'src/main/webview-preload.ts')],
+    outfile: path.resolve(__dirname, 'dist-electron/webview-preload.cjs'),
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+  });
 }
 
 // Build preload and sync metadata immediately
@@ -52,7 +60,7 @@ function preloadPlugin(): Plugin {
       buildPreload();
     },
     handleHotUpdate({ file, server }) {
-      if (file.includes('src/main/preload.ts')) {
+      if (file.includes('src/main/preload.ts') || file.includes('src/main/webview-preload.ts')) {
         buildPreload();
         server.ws.send({ type: 'full-reload' });
       }

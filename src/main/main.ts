@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
+import dns from 'node:dns';
 import { DeviceStore } from './services/DeviceStore';
 import { HealthMonitor } from './services/HealthMonitor';
+import { DeviceDiscovery } from './services/DeviceDiscovery';
 import { KvmDevice } from '../shared/types/device';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,9 +18,44 @@ app.commandLine.appendSwitch('log-level', '3');
 // Allow local self-signed certificates and private network requests without blocking
 app.commandLine.appendSwitch('ignore-certificate-errors');
 app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
-app.commandLine.appendSwitch('disable-features', 'BlockInsecurePrivateNetworkRequests,SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure');
+app.commandLine.appendSwitch('disable-web-security');
+app.commandLine.appendSwitch('disable-features', 'BlockInsecurePrivateNetworkRequests,SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults');
+app.commandLine.appendSwitch('disable-async-dns');
 
 app.setName('Salmer KVM Studio');
+
+// Initialize persistent file logging
+const logDir = path.join(app.getPath('userData'), 'logs');
+try {
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+} catch {}
+const logFilePath = path.join(logDir, 'app.log');
+const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+function writeLog(level: string, ...args: any[]) {
+  const line = `[${new Date().toISOString()}] ${level} ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`;
+  try {
+    logStream.write(line);
+    process.stdout.write(line);
+  } catch {}
+}
+
+const origLog = console.log;
+const origWarn = console.warn;
+const origError = console.error;
+
+console.log = (...args) => { origLog(...args); writeLog('[INFO]', ...args); };
+console.warn = (...args) => { origWarn(...args); writeLog('[WARN]', ...args); };
+console.error = (...args) => { origError(...args); writeLog('[ERROR]', ...args); };
+
+process.on('uncaughtException', (err) => {
+  console.error('[UncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[UnhandledRejection]', reason);
+});
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (process.platform === 'win32') {
@@ -29,6 +66,7 @@ let mainWindow: BrowserWindow | null = null;
 const popoutWindows: Map<string, BrowserWindow> = new Map();
 let deviceStore: DeviceStore;
 let healthMonitor: HealthMonitor;
+let deviceDiscovery: DeviceDiscovery;
 const authTokens = new Map<string, string>();
 
 // Allow local self-signed certificates for NanoKVM devices unconditionally
@@ -80,6 +118,33 @@ function createMainWindow(): BrowserWindow {
     console.log(`[Renderer Console] ${message}`);
   });
 
+  win.webContents.on('before-input-event', (event, input) => {
+    // F12 or Cmd+Alt+I / Ctrl+Shift+I toggles DevTools
+    const isDevToolsShortcut =
+      input.key === 'F12' ||
+      ((input.meta || input.control) && input.alt && input.key.toLowerCase() === 'i') ||
+      ((input.meta || input.control) && input.shift && input.key.toLowerCase() === 'i');
+
+    if (input.type === 'keyDown' && isDevToolsShortcut) {
+      event.preventDefault();
+      win.webContents.toggleDevTools();
+    }
+
+    // Always allow ESC to exit fullscreen
+    if (input.type === 'keyDown' && input.key === 'Escape' && win.isFullScreen()) {
+      event.preventDefault();
+      win.setFullScreen(false);
+    }
+  });
+
+  win.on('enter-full-screen', () => {
+    win.webContents.send('window-fullscreen-changed', true);
+  });
+
+  win.on('leave-full-screen', () => {
+    win.webContents.send('window-fullscreen-changed', false);
+  });
+
   win.webContents.on('did-finish-load', () => {
     win.webContents.executeJavaScript(`
       console.log('[Electron Check] kvmApi available:', !!window.kvmApi, 'isMock:', window.kvmApi?.isMock);
@@ -116,6 +181,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('devices:check-health', async (_event, id) => {
     return healthMonitor.checkDevice(id);
+  });
+
+  ipcMain.handle('devices:scan-lan', async (_event, options) => {
+    return deviceDiscovery.scanLan(options);
   });
 
   // Groups
@@ -278,9 +347,38 @@ function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  // Return absolute file URL to webview preload script
+  ipcMain.handle('session:get-webview-preload', async () => {
+    const preloadPath = path.join(__dirname, 'webview-preload.cjs');
+    return fs.existsSync(preloadPath) ? `file://${preloadPath}` : '';
+  });
+
   // Pre-authenticate device session
   ipcMain.handle('session:pre-auth', async (_event, device: Partial<KvmDevice>) => {
     return authenticateDevice(device);
+  });
+
+  // System & Debugging
+  ipcMain.handle('system:open-logs', async () => {
+    try {
+      if (fs.existsSync(logFilePath)) {
+        shell.showItemInFolder(logFilePath);
+      } else {
+        shell.openPath(logDir);
+      }
+      return { success: true, logFilePath };
+    } catch (err: any) {
+      console.error('[System] Failed to open logs:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('system:open-devtools', async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.toggleDevTools();
+      return true;
+    }
+    return false;
   });
 }
 
@@ -309,17 +407,35 @@ async function authenticateDevice(device: Partial<KvmDevice>): Promise<{ success
     return { success: false };
   }
 
+  // Pre-resolve .local hostname to IPv4 to prevent macOS IPv6 link-local connection timeouts
+  let targetHost = host;
+  if (host.toLowerCase().includes('.local')) {
+    try {
+      const resolved = await new Promise<string | null>((resLookup) => {
+        dns.lookup(host, { family: 4 }, (err, address) => {
+          if (!err && address) resLookup(address);
+          else resLookup(null);
+        });
+      });
+      if (resolved) {
+        targetHost = resolved;
+      }
+    } catch {}
+  }
+
   return new Promise((resolve) => {
     try {
       const isHttps = protocol === 'https';
       const httpModule = isHttps ? https : http;
       const req = httpModule.request(
         {
-          hostname: host,
+          hostname: targetHost,
+          family: 4,
           port: port,
           path: '/api/auth/login',
           method: 'POST',
           headers: {
+            'Host': host,
             'Content-Type': 'application/json',
             Accept: 'application/json',
           },
@@ -335,12 +451,19 @@ async function authenticateDevice(device: Partial<KvmDevice>): Promise<{ success
               const token = data?.data?.token;
               if (token) {
                 authTokens.set(host, token);
-                const targetUrls = [
+                if (targetHost && targetHost !== host) {
+                  authTokens.set(targetHost, token);
+                }
+                const targetUrls = Array.from(new Set([
                   `${protocol}://${host}:${port}/`,
                   `${protocol}://${host}/`,
                   `https://${host}/`,
                   `http://${host}/`,
-                ];
+                  `${protocol}://${targetHost}:${port}/`,
+                  `${protocol}://${targetHost}/`,
+                  `https://${targetHost}/`,
+                  `http://${targetHost}/`,
+                ]));
                 const sessions = [session.defaultSession, session.fromPartition('persist:nanokvm')];
                 const isSecure = protocol === 'https';
 
@@ -428,6 +551,14 @@ function configureSession(sess: Electron.Session): void {
     callback(0);
   });
 
+  // Handle all permission requests (e.g. pointerLock, keyboardLock, clipboard, media)
+  sess.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(true);
+  });
+  sess.setPermissionCheckHandler((_webContents, _permission) => {
+    return true;
+  });
+
   // Attach token and cookies before sending request
   sess.webRequest.onBeforeSendHeaders((details, callback) => {
     const requestHeaders = { ...details.requestHeaders };
@@ -470,15 +601,15 @@ function configureSession(sess: Electron.Session): void {
 
     for (const key of Object.keys(responseHeaders)) {
       const lower = key.toLowerCase();
-      if (lower === 'x-frame-options' || lower === 'frame-options') {
-        delete responseHeaders[key];
-      }
-      if (lower === 'content-security-policy') {
-        responseHeaders[key] = responseHeaders[key]
-          .map((csp) => csp.replace(/frame-ancestors[^;]+;?/gi, ''))
-          .filter(Boolean);
-      }
-      if (lower === 'cross-origin-embedder-policy' || lower === 'cross-origin-opener-policy') {
+      if (
+        lower === 'x-frame-options' ||
+        lower === 'frame-options' ||
+        lower === 'content-security-policy' ||
+        lower === 'content-security-policy-report-only' ||
+        lower === 'cross-origin-embedder-policy' ||
+        lower === 'cross-origin-opener-policy' ||
+        lower === 'cross-origin-resource-policy'
+      ) {
         delete responseHeaders[key];
       }
       if (lower === 'set-cookie' && responseHeaders[key]) {
@@ -510,6 +641,12 @@ function configureSession(sess: Electron.Session): void {
       }
     }
 
+    // Ensure CORS does not block Axios, Fetch, or WebSocket requests
+    responseHeaders['Access-Control-Allow-Origin'] = ['*'];
+    responseHeaders['Access-Control-Allow-Credentials'] = ['true'];
+    responseHeaders['Access-Control-Allow-Methods'] = ['GET, POST, PUT, DELETE, OPTIONS, HEAD'];
+    responseHeaders['Access-Control-Allow-Headers'] = ['*'];
+
     callback({ cancel: false, responseHeaders });
   });
 }
@@ -532,17 +669,26 @@ app.whenReady().then(() => {
       event.preventDefault();
       callback(true);
     });
+    contents.on('before-input-event', (_event, input) => {
+      if (input.type === 'keyDown' && input.key === 'Escape') {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen()) {
+          mainWindow.setFullScreen(false);
+        }
+      }
+    });
     if (contents.session) {
       configureSession(contents.session);
     }
   });
 
   deviceStore = new DeviceStore();
-  healthMonitor = new HealthMonitor(deviceStore);
+  deviceDiscovery = new DeviceDiscovery(deviceStore);
+  healthMonitor = new HealthMonitor(deviceStore, deviceDiscovery);
 
   registerIpcHandlers();
   mainWindow = createMainWindow();
   healthMonitor.start();
+  deviceDiscovery.startPeriodicDiscovery(2);
   updateGlobalShortcuts();
 
   app.on('activate', () => {
@@ -555,6 +701,7 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   healthMonitor?.stop();
+  deviceDiscovery?.stopPeriodicDiscovery();
 });
 
 app.on('window-all-closed', () => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Gamepad2, Maximize2, ShieldCheck, Languages } from 'lucide-react';
+import { Gamepad2, Maximize2, ShieldCheck, Languages, Terminal, FileText } from 'lucide-react';
 import { AppSettings, LayoutMode } from '../../../shared/types/session';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -167,6 +167,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <option value={30}>30s</option>
               <option value={60}>60s</option>
             </select>
+          </div>
+        </div>
+
+        {/* Diagnostics & Logs */}
+        <div className="settings-group-card">
+          <div className="group-card-header">
+            <Terminal size={16} className="text-accent-cyan" />
+            <div>
+              <h4 className="group-card-title">Diagnóstico & Depuração</h4>
+              <p className="group-card-desc">Visualize registros de execução e inspecione o console de desenvolvedor (Atalho: F12 ou ⌘+⌥+I).</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => window.kvmApi?.openLogs()}
+            >
+              <FileText size={14} className="mr-1" />
+              Abrir Arquivo de Logs
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => window.kvmApi?.openDevTools()}
+            >
+              <Terminal size={14} className="mr-1" />
+              Abrir DevTools
+            </Button>
           </div>
         </div>
 

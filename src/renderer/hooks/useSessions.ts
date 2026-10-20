@@ -16,7 +16,8 @@ export function useSessions() {
         return prev;
       }
 
-      const streamUrl = `${device.protocol}://${device.host}:${device.port}/`;
+      const targetHost = device.resolvedIp || device.host;
+      const streamUrl = `${device.protocol}://${targetHost}:${device.port}/`;
       const newSession: ActiveSession = {
         id: `sess-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         deviceId: device.id,
@@ -67,7 +68,8 @@ export function useSessions() {
     if (typeof target === 'object' && target !== null && 'id' in target) {
       deviceId = target.id;
       if (!url) {
-        url = `${target.protocol}://${target.host}:${target.port}/`;
+        const host = target.resolvedIp || target.host;
+        url = `${target.protocol}://${host}:${target.port}/`;
       }
     } else {
       deviceId = target;

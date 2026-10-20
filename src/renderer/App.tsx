@@ -16,7 +16,7 @@ import { useGamepad } from './hooks/useGamepad';
 import { useFullscreenLock } from './hooks/useFullscreenLock';
 import { KvmDevice } from '../shared/types/device';
 import { AppSettings } from '../shared/types/session';
-import { Plus, Server, Zap } from 'lucide-react';
+import { Plus, Server, Zap, Radio } from 'lucide-react';
 import { Button } from './components/common/Button';
 import { useI18n } from './i18n/I18nContext';
 
@@ -96,10 +96,27 @@ export const App: React.FC = () => {
     shortcut: settings.fullscreenShortcut || 'F11',
   });
 
+  const [isScanningLan, setIsScanningLan] = useState(false);
+
   const handleRefreshAll = async () => {
     setIsRefreshingAll(true);
     await refreshAll();
     setTimeout(() => setIsRefreshingAll(false), 800);
+  };
+
+  const handleScanLan = async () => {
+    if (!window.kvmApi?.scanLan) return;
+    setIsScanningLan(true);
+    try {
+      const discovered = await window.kvmApi.scanLan({ fullSubnet: true });
+      if (discovered && discovered.length > 0) {
+        reload();
+      }
+    } catch (err) {
+      console.warn('LAN scan failed:', err);
+    } finally {
+      setIsScanningLan(false);
+    }
   };
 
   const handleExportBackup = async () => {
@@ -255,7 +272,17 @@ export const App: React.FC = () => {
                     </p>
                   </div>
 
-                  <div className="dashboard-quick-actions">
+                  <div className="dashboard-quick-actions flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Radio size={14} className={isScanningLan ? 'animate-pulse text-accent-cyan' : ''} />}
+                      onClick={handleScanLan}
+                      disabled={isScanningLan}
+                      title="Procurar novos NanoKVMs ativos na rede local via mDNS e varredura de sub-rede"
+                    >
+                      {isScanningLan ? 'Escaneando...' : 'Escanear Rede'}
+                    </Button>
                     <Button
                       variant="primary"
                       size="sm"

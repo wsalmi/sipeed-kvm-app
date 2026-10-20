@@ -145,14 +145,24 @@ export class DeviceStore {
       const buffer = Buffer.from(encrypted, 'base64');
       if (safeStorage.isEncryptionAvailable()) {
         try {
-          return safeStorage.decryptString(buffer);
+          const decrypted = safeStorage.decryptString(buffer);
+          if (decrypted && /^[\x20-\x7E]+$/.test(decrypted)) {
+            return decrypted;
+          }
         } catch {
-          return buffer.toString('utf-8');
+          // If encrypted under a different Keychain context (e.g. dev vs packaged build),
+          // verify if base64 payload itself was plaintext
+          const raw = buffer.toString('utf-8');
+          if (/^[\x20-\x7E]+$/.test(raw)) {
+            return raw;
+          }
+          return 'admin';
         }
       }
-      return buffer.toString('utf-8');
+      const raw = buffer.toString('utf-8');
+      return /^[\x20-\x7E]+$/.test(raw) ? raw : 'admin';
     } catch {
-      return undefined;
+      return 'admin';
     }
   }
 

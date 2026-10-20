@@ -91,8 +91,16 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
 
       {/* Network & Host Information */}
       <div className="card-network-info">
-        <span className="host-address mono truncate" title={`${device.protocol}://${device.host}:${device.port}`}>
-          {device.host}:{device.port}
+        <span
+          className="host-address mono truncate"
+          title={`${device.protocol}://${device.originalHost || device.host}:${device.port}${device.resolvedIp && device.resolvedIp !== (device.originalHost || device.host) ? ` (${device.resolvedIp})` : ''}`}
+        >
+          {device.originalHost || device.host}:{device.port}
+          {device.resolvedIp && device.resolvedIp !== (device.originalHost || device.host) && (
+            <span style={{ opacity: 0.65, fontSize: '0.85em', marginLeft: 4 }}>
+              ({device.resolvedIp})
+            </span>
+          )}
         </span>
         {device.tags && device.tags.length > 0 && (
           <div className="card-tags-list">

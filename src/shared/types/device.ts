@@ -46,6 +46,8 @@ export interface KvmDevice {
   createdAt: number;
   updatedAt: number;
   health?: DeviceHealth;
+  originalHost?: string; // Original .local or domain name if resolved to IP
+  resolvedIp?: string; // Discovered or resolved IPv4 address
 }
 
 export interface DeviceGroup {

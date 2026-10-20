@@ -130,6 +130,11 @@ export function initBrowserMockApi(): void {
       }
     },
 
+    scanLan: async (): Promise<any[]> => {
+      console.log('[BrowserMock] scanLan called');
+      return [];
+    },
+
     checkAllHealth: async (): Promise<Record<string, DeviceHealth>> => {
       const devices = getStored<KvmDevice[]>(STORAGE_KEYS.DEVICES, []);
       await Promise.allSettled(devices.map((d) => mockApi.checkDeviceHealth(d.id)));
@@ -227,6 +232,7 @@ export function initBrowserMockApi(): void {
     isFullscreen: async (): Promise<boolean> => {
       return Boolean(document.fullscreenElement);
     },
+    onFullscreenChange: (_callback: (isFull: boolean) => void) => () => {},
     openExternalUrl: (url: string) => {
       window.open(url, '_blank', 'noopener,noreferrer');
     },
@@ -236,6 +242,7 @@ export function initBrowserMockApi(): void {
     },
 
     // Actions
+    getWebviewPreload: async () => '',
     preAuth: async (_device: Partial<KvmDevice>) => {
       return { success: false };
     },
@@ -245,6 +252,14 @@ export function initBrowserMockApi(): void {
     },
     captureScreenshot: async () => {
       return { success: true, clipboardCopied: true };
+    },
+    openLogs: async () => {
+      console.log('[BrowserMock] openLogs called');
+      return { success: true };
+    },
+    openDevTools: async () => {
+      console.log('[BrowserMock] openDevTools called');
+      return true;
     },
   };
 

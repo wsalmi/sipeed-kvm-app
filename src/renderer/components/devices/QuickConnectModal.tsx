@@ -35,7 +35,8 @@ export const QuickConnectModal: React.FC<QuickConnectModalProps> = ({
       if (port === '443') setPort('80');
     }
 
-    if (clean.toLowerCase().includes('nanokvm.local') && protocol === 'http') {
+    const lower = clean.toLowerCase();
+    if ((lower.includes('nanokvm') || lower.endsWith('.local')) && protocol === 'http') {
       setProtocol('https');
       if (port === '80') setPort('443');
     }
@@ -66,15 +67,18 @@ export const QuickConnectModal: React.FC<QuickConnectModalProps> = ({
       if (p) finalPort = Number(p) || finalPort;
     }
 
-    if (cleanHost.toLowerCase().includes('nanokvm.local') && finalProto === 'http') {
+    const lowerHost = cleanHost.toLowerCase();
+    if ((lowerHost.includes('nanokvm') || lowerHost.endsWith('.local')) && finalProto === 'http') {
       finalProto = 'https';
       if (finalPort === 80) finalPort = 443;
     }
 
+    const isLocalHostname = cleanHost.includes('.local');
     const tempDevice: KvmDevice = {
       id: `quick-${Date.now()}`,
       name: `Quick: ${cleanHost}`,
       host: cleanHost,
+      originalHost: isLocalHostname ? cleanHost : undefined,
       port: finalPort,
       protocol: finalProto,
       model: 'nanokvm-go',
@@ -122,7 +126,7 @@ export const QuickConnectModal: React.FC<QuickConnectModalProps> = ({
               type="text"
               required
               autoFocus
-              placeholder="Ex: 192.168.1.50 ou nanokvm.local"
+              placeholder="Ex: 192.168.1.50 ou nanokvm-9AFC17.local"
               value={host}
               onChange={(e) => handleHostChange(e.target.value)}
               className="form-input mono"
