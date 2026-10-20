@@ -4,6 +4,12 @@
 
 **Multiplatform Desktop Manager for Sipeed NanoKVM Devices**
 
+<br />
+
+<img src="./docs/images/screenshot-dashboard.png" alt="Salmer KVM Studio Dashboard" width="100%" />
+
+<br /><br />
+
 [🇺🇸 English](#-english) • [🇪🇸 Español](#-español) • [🇧🇷 Português](#-português)
 
 </div>
