@@ -58,6 +58,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # electron-builder takes the version (artifact names, app version) from
+      # package.json, so sync it with the tag being released.
+      - name: Set app version from tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            echo "No tag given, keeping version from package.json"
+            exit 0
+          fi
+          npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+          echo "Building version $(node -p "require('./package.json').version")"
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
