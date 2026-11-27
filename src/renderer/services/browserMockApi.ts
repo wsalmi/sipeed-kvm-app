@@ -242,7 +242,6 @@ export function initBrowserMockApi(): void {
     },
 
     // Actions
-    getWebviewPreload: async () => '',
     preAuth: async (_device: Partial<KvmDevice>) => {
       return { success: false };
     },

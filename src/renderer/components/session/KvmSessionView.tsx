@@ -15,7 +15,6 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const [webviewPreload, setWebviewPreload] = useState<string | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<any>(null);
   const isDomReadyRef = useRef<boolean>(false);
@@ -25,17 +24,6 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
     username: session.device.username,
     password: session.device.password,
   });
-
-  // Fetch webview preload script URL in Electron
-  useEffect(() => {
-    if (isElectron && (window as any).kvmApi?.getWebviewPreload) {
-      (window as any).kvmApi.getWebviewPreload().then((preloadUrl: string) => {
-        if (preloadUrl) {
-          setWebviewPreload(preloadUrl);
-        }
-      }).catch(() => {});
-    }
-  }, [isElectron]);
 
   // Resolve device credentials from store if password was omitted in the in-memory object
   useEffect(() => {
@@ -504,7 +492,6 @@ export const KvmSessionView: React.FC<KvmSessionViewProps> = ({
           className="kvm-frame"
           allowpopups={"true" as any}
           allowFullScreen={"true" as any}
-          preload={webviewPreload}
           webpreferences="contextIsolation=no, nodeIntegration=no, webSecurity=no, allowRunningInsecureContent=yes"
           style={{ width: '100%', height: '100%', flex: 1, minHeight: '100%', border: 'none', display: 'inline-flex' }}
         />

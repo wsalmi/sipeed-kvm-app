@@ -53,7 +53,6 @@ export const kvmApi = {
   openPopout: (deviceId: string, url: string) => ipcRenderer.invoke('session:open-popout', { deviceId, url }),
 
   // KVM Actions & Input
-  getWebviewPreload: (): Promise<string> => ipcRenderer.invoke('session:get-webview-preload'),
   preAuth: (device: Partial<KvmDevice>): Promise<{ success: boolean; token?: string }> =>
     ipcRenderer.invoke('session:pre-auth', device),
   sendSpecialKey: (sessionId: string, key: KvmSpecialKey) => ipcRenderer.invoke('session:send-key', { sessionId, key }),

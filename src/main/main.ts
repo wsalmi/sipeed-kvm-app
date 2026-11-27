@@ -75,6 +75,12 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
   callback(true);
 });
 
+// Preload for NanoKVM guest pages (pointer lock polyfill, macOS Cmd+key keyup fix).
+function getWebviewPreloadPath(): string | undefined {
+  const preloadPath = path.join(__dirname, 'webview-preload.cjs');
+  return fs.existsSync(preloadPath) ? preloadPath : undefined;
+}
+
 function createMainWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
@@ -307,6 +313,7 @@ function registerIpcHandlers(): void {
         contextIsolation: true,
         partition: 'persist:nanokvm',
         webSecurity: false,
+        preload: getWebviewPreloadPath(),
       },
     });
 
@@ -345,12 +352,6 @@ function registerIpcHandlers(): void {
   ipcMain.handle('session:send-key', async (_event, { key }) => {
     console.log('[KVM Action] Special key requested:', key);
     return { success: true };
-  });
-
-  // Return absolute file URL to webview preload script
-  ipcMain.handle('session:get-webview-preload', async () => {
-    const preloadPath = path.join(__dirname, 'webview-preload.cjs');
-    return fs.existsSync(preloadPath) ? `file://${preloadPath}` : '';
   });
 
   // Pre-authenticate device session
@@ -668,6 +669,15 @@ app.whenReady().then(() => {
     contents.on('certificate-error', (event, _url, _error, _certificate, callback) => {
       event.preventDefault();
       callback(true);
+    });
+    // Inject the guest preload here rather than via the <webview preload> attribute:
+    // the renderer only learns the path asynchronously, and Electron reads that
+    // attribute once when the element is attached, so it was usually still empty.
+    contents.on('will-attach-webview', (_event, webPreferences) => {
+      const preloadPath = getWebviewPreloadPath();
+      if (preloadPath) {
+        webPreferences.preload = preloadPath;
+      }
     });
     contents.on('before-input-event', (_event, input) => {
       if (input.type === 'keyDown' && input.key === 'Escape') {

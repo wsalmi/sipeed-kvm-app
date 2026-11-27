@@ -108,4 +108,40 @@
     },
     true
   );
+
+  // macOS doesn't fire keyup for a key pressed while Cmd is held - only once Cmd
+  // itself goes up. NanoKVM's web UI forwards keydown/keyup as HID reports, so
+  // after Cmd+T the remote sees T held down until Cmd is released and its own
+  // key repeat kicks in (Cmd+T opens a pile of tabs, Cmd+V pastes many times).
+  // Send the missing keyup ourselves shortly after the keydown.
+  const isMacClient = /Mac/i.test(navigator.platform || navigator.userAgent);
+  const MODIFIER_CODE = /^(Meta|OS|Control|Shift|Alt|CapsLock|Fn)/;
+  const CMD_KEYUP_DELAY_MS = 50;
+
+  if (isMacClient) {
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (!e.isTrusted || !e.metaKey || !e.code || MODIFIER_CODE.test(e.code)) return;
+
+        const { code, key, location } = e;
+        const target = e.target instanceof Node && e.target.isConnected ? e.target : document;
+
+        setTimeout(() => {
+          target.dispatchEvent(
+            new KeyboardEvent('keyup', {
+              code,
+              key,
+              location,
+              metaKey: true,
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+            })
+          );
+        }, CMD_KEYUP_DELAY_MS);
+      },
+      true
+    );
+  }
 })();
